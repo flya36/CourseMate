@@ -8,6 +8,9 @@ app = FastAPI()
 app.include_router(health.router)
 app.include_router(course.router)
 
+from src.app.exception_handlers import register_exception_handlers
+register_exception_handlers(app)
+
 # if __name__ == '__main__':
 #     uvicorn.run(app , host='127.0.0.1', port=8000)
 
