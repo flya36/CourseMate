@@ -2,6 +2,7 @@ import logging
 from fastapi import FastAPI,Request,HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError
 
 logger = logging.getLogger('coursemate')
 
@@ -21,3 +22,15 @@ def register_exception_handlers(app:FastAPI) -> None:
     async def unhandled_exc(request: Request, exc: Exception):
         logger.exception("Unhandled error: %s %s", request.method, request.url.path)
         return JSONResponse(status_code=500, content={"detail": "服务器内部错误"})
+
+    # ④ 数据冲突：唯一/外键约束违反 → 409
+    @app.exception_handler(IntegrityError)
+    async def state_conflict(request: Request, exc: IntegrityError):
+        logger.warning(
+            "IntegrityError on %s %s | %s",           # 记路径 + 原始数据库错误
+            request.method, request.url.path, exc.orig,
+        )
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "数据冲突：违反唯一约束或外键约束，操作未完成"},
+        )

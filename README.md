@@ -2,7 +2,7 @@
 
 AI 课程资料智能学习与复习助手（RAG 架构）
 
-> 状态：开发中（V0.1 骨架已落地：/health + /courses 假数据接口、四层目录分层、2 条 pytest 通过）。安装 / 启动 / 测试章节已按当前代码核对，数据库接入后继续更新。
+> 状态：V0.2 已落地（MySQL 持久化：课程 / 文档元信息 CRUD 共 11 个业务接口，course↔document 一对多关系，删除受外键保护返回 409，pytest 19 条全绿）。下一步 V0.3：认证 + 文件上传。
 
 ## 项目简介
 
@@ -54,48 +54,72 @@ CourseMate 是一个基于 RAG（检索增强生成）架构的课程资料智�
 ```
 CourseMate/
 ├── docs/
-│   └── test-records.md          # 接口手工测试记录（6 条有效 + 2 条排除）
+│   ├── test-records.md          # 接口测试记录（V0.1 历史归档 + V0.2 自动化用例）
+│   └── demo/                    # Demo 截图
 ├── src/
 │   ├── __init__.py
 │   ├── app/
 │   │   ├── __init__.py
-│   │   └── main.py              # 应用入口：创建 FastAPI 实例并注册路由
-│   ├── config/                  # 配置层（当前为空，DB / JWT 配置后续放此）
-│   ├── router/                  # 路由层：只做请求转发，不含业务逻辑
+│   │   ├── main.py              # 应用入口：创建 FastAPI 实例、注册路由与异常处理
+│   │   └── exception_handlers.py# 异常映射：业务错误 / 422 校验 / 409 冲突 / 500 兜底
+│   ├── config/
 │   │   ├── __init__.py
-│   │   ├── course.py            # /courses 创建与列表
-│   │   └── health.py            # /health 健康检查
+│   │   └── settings.py          # pydantic-settings 读取 .env，拼装数据库连接串
+│   ├── models/                  # ORM 模型层：表结构映射
+│   │   ├── __init__.py
+│   │   ├── course.py            # course 表 + documents 关系（一对多）
+│   │   └── document.py          # document 表 + course 反向关系
+│   ├── router/                  # 路由层：只做请求转发与参数声明，不含业务逻辑
+│   │   ├── __init__.py
+│   │   ├── health.py            # /health 健康检查
+│   │   ├── course.py            # /courses 5 个接口
+│   │   └── document.py          # /documents 6 个接口
 │   ├── schema/                  # Pydantic 模型层：请求/响应校验
 │   │   ├── __init__.py
-│   │   └── course.py            # CourseCreate / CourseRead（extra='forbid'）
-│   └── service/                 # 业务逻辑层：数据与规则
-│       ├── __init__.py
-│       └── course.py            # FAKE_COURSES + create/list 逻辑（id 生成在此）
+│   │   ├── course.py            # CourseCreate / CourseRead（extra='forbid'）
+│   │   └── document.py          # DocumentCreate / DocumentRead
+│   ├── service/                 # 业务逻辑层：数据与规则
+│   │   ├── __init__.py
+│   │   ├── course.py            # 课程 CRUD（分页、删除保护）
+│   │   └── document.py          # 文档元信息 CRUD（分页、按课程查询）
+│   └── db.py                    # engine / SessionLocal / Base / get_db 依赖
 ├── tests/
-│   └── test_courses.py          # pytest：422 缺字段 + 201 创建（2 passed）
+│   ├── conftest.py              # 测试库 coursemate_test 建表清表 + client 夹具
+│   ├── test_courses.py          # 课程 CRUD / 分页 / 409（11 条）
+│   └── test_documents.py        # 文档 CRUD / 校验 / 分页 / 归属过滤（8 条）
+├── .env.example
 ├── .python-version
 ├── pyproject.toml
-├── uv.lock
-└── README.md
+├── README.md
+└── uv.lock
 ```
 
-**分层约定**：app（组装）→ router（转发）→ service（业务）/ schema（校验）；config（配置）。目标是"改一处逻辑不需动所有文件"，例如 id 生成规则变更只改 `service/course.py`。
+**分层约定**：app（组装）→ router（转发）→ service（业务）/ schema（校验）/ models（映射）；config（配置）、db（连接）。目标是"改一处逻辑不需动所有文件"，例如分页默认条数变更只改 `service/`。
 
-规划中（后续新增）：`parser/`（PPTX / PDF 解析）、`rag/`（切分 / 向量化 / 检索 / 生成）、`data/`（向量库持久化，不入库）、`.env.example`（骨架完成后生成）。
+规划中（后续新增）：`parser/`（PPTX / PDF 解析）、`rag/`（切分 / 向量化 / 检索 / 生成）、`data/`（向量库持久化，不入库）。
 
-## 当前接口（V0.1，假数据）
+## 当前接口（V0.2，MySQL 持久化）
 
-| 方法 | 路径 | 说明 | 行为 |
-| --- | --- | --- | --- |
-| GET | /health | 健康检查 | 200 `{"status":"ok"}` |
-| POST | /courses | 创建课程 | 201 + CourseRead（course_id 服务端生成）；缺字段 / 类型错 / 多余字段 → 422 |
-| GET | /courses | 课程列表 | 200 + `list[CourseRead]`；未定义路径返回框架默认 404 |
+| 方法 | 路径 | 说明 | 成功 | 失败 |
+| --- | --- | --- | --- | --- |
+| GET | /health | 健康检查 | 200 `{"status":"ok"}` | — |
+| POST | /courses | 创建课程 | 201 + CourseRead | 422 校验失败；409 课程名重复 |
+| GET | /courses | 课程列表（分页） | 200 + `list[CourseRead]`，参数 `page`（≥1）/ `limit`（1—100） | 422 参数越界 |
+| GET | /courses/{course_id} | 查单门课程 | 200 + CourseRead | 404 课程不存在 |
+| PUT | /courses/{course_id} | 整体更新课程 | 200 + CourseRead | 404；409 课程名重复 |
+| DELETE | /courses/{course_id} | 删除课程 | 204 | 404；409 该课程下还有文档 |
+| POST | /documents | 创建文档元信息 | 201 + DocumentRead | 422；404 课程不存在 |
+| GET | /documents | 文档列表（分页） | 200 + `list[DocumentRead]`，参数 `page` / `limit` | 422 参数越界 |
+| GET | /documents/{document_id} | 查单份文档 | 200 + DocumentRead | 404 文件不存在 |
+| GET | /courses/{course_id}/documents | 按课程查文档 | 200 + `list[DocumentRead]` | 404 课程不存在 |
+| PUT | /documents/{document_id} | 整体更新文档 | 200 + DocumentRead | 404 文档不存在；404 课程不存在 |
+| DELETE | /documents/{document_id} | 删除文档 | 204 | 404 文件不存在 |
 
 接口文档（Swagger）：启动后访问 `http://127.0.0.1:8000/docs`。
 
 ## 安装步骤
 
-> 依赖清单（pyproject.toml）已建立（fastapi + uvicorn），安装命令已核对可用；后续新增依赖随开发更新。
+> 依赖清单见 `pyproject.toml`（fastapi / uvicorn / sqlalchemy / pymysql / pydantic-settings；dev 组 pytest + httpx），已用 uv 锁定。
 
 ```
 # 1. 克隆仓库
@@ -119,7 +143,42 @@ uv run python -m uvicorn src.app.main:app --reload
 
 > **Windows 环境提示**：应用控制策略可能拦截 `uvicorn.exe` / `pytest.exe`（os error 4551），统一用 `python -m` 形式启动 / 测试（本 README 命令已采用）；不要用 VS Code 播放键直接运行 `src/app/main.py`（脚本式启动与包式导入不兼容）。
 
-前置依赖：本地 MySQL（已安装）。需提前创建数据库（如 `coursemate`），建库 SQL 与初始化说明将随 V0.2 补充。
+前置依赖：本地 MySQL（已安装）。数据库需先建库并配好连接信息，见下节。
+
+## 数据库初始化
+
+> 首次运行或换机器时按本节执行一次。表结构由 ORM 模型定义，但**建库不能省**。
+
+**1. 建库**（开发库 + 测试库两个；测试库给 pytest 用，避免污染开发数据）
+
+```sql
+-- Windows 下登录 MySQL 客户端：E:\MySQL\bin\mysql.exe -u root -p
+create database if not exists coursemate
+    default character set utf8mb4 collate utf8mb4_general_ci;
+
+create database if not exists coursemate_test
+    default character set utf8mb4 collate utf8mb4_general_ci;
+```
+
+**2. 配连接信息**
+
+复制 `.env.example` 为 `.env`，填写 `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME`（变量说明见下节）。密码只存在于 `.env`，`.gitignore` 已忽略该文件。
+
+**3. 验证连通性（可选）**
+
+```powershell
+uv run python verify_db.py
+```
+
+**4. 建表**
+
+`course` 与 `document` 两表由 ORM 模型定义：跑 pytest 时会在 `coursemate_test` 里自动 `create_all` / `drop_all`；开发库 `coursemate` 可执行一次下面的命令建表。
+
+```powershell
+uv run python -c "from src.db import Base, engine; import src.models.course, src.models.document; Base.metadata.create_all(engine); print('tables created')"
+```
+
+> 外键 `document.course_id → course.id` 为 `RESTRICT`：删除课程前必须先删其文档，否则接口返回 409。`chunk` 表属 V0.4 解析阶段，届时补 ORM 映射。
 
 ## 环境变量配置
 
@@ -139,14 +198,23 @@ uv run python -m uvicorn src.app.main:app --reload
 | LLM_MODEL | 模型名（待定） | `<待填>` |
 | CHROMA_PERSIST_DIR | Chroma 持久化目录 | ./data/chroma |
 
-> 变量名随开发推进可能调整；`.env.example` 会在骨架建立后同步生成并核对。
+> 变量名随开发推进可能调整；当前 `.env.example` 只包含数据库 5 项（`DB_*`），V0.3 加入 JWT 后同步补齐。
 
 ## 测试方法
 
 - 框架：pytest；运行命令：`uv run python -m pytest -v`（项目根目录执行）
   - 注：若 `pytest.exe` 被应用控制策略拦截（os error 4551），`python -m pytest` 可绕开（与 uvicorn 同理）
+- 测试库：`coursemate_test`（与开发库 `coursemate` 隔离）；每条用例前 `create_all`、后 `drop_all`，互不污染
+- 依赖覆盖：`conftest.py` 用 `app.dependency_overrides[get_db]` 把真实库换成测试库，不需要启动服务
 - 约定：从第 0 周起，每个新功能同步补最小 pytest 用例（随功能累积），1 月只做集成与回归完善
-- 当前状态：2 条用例已建立并通过（2 passed）：缺字段 → 422、正常创建 → 201；手工接口测试记录见 `docs/test-records.md`（6 条有效 + 2 条排除，含"多余字段被静默忽略"发现，已通过 `extra='forbid'` 修复）
+- 当前状态：**19 条全部通过**（约 1.9s）
+
+| 文件 | 条数 | 覆盖 |
+| --- | --- | --- |
+| `tests/test_courses.py` | 11 | 创建 201 / 缺字段 422 / 未知 id 404 / 更新可回读 / 删除后 404 / 分页两页 / 越界返空 / 重名 409 / 更新可清空描述 / 删除有文档 409 / 先删子再删父 204 |
+| `tests/test_documents.py` | 8 | 创建 201 / 非法 file_type 422 / 课程不存在 404 / 未知文档 404 / 更新+删除 / 按课程过滤回归 / 分页两页 / 越界返空 |
+
+- 手工接口记录（含 V0.1 历史归档）见 `docs/test-records.md`
 
 ## Demo 与评测
 
@@ -172,7 +240,7 @@ uv run python -m uvicorn src.app.main:app --reload
 
 ## Roadmap（简版）
 
-- 当前：FastAPI 骨架 + /health + /courses 假数据接口 + 四层目录分层 + 2 条 pytest（10.28—10.30 已落地；V0.2 接入 MySQL 持久化，11.8）
+- 当前：V0.2 完成——MySQL 持久化 + 课程/文档 CRUD 11 个业务接口 + course↔document 一对多关系 + 删除受外键保护（409）+ 19 条 pytest（11.07 收口，11.08 周复盘验收）
 - 11 月：认证 / 上传 / 解析（V0.3 / V0.4）
 - 12 月：LLM 结构化输出、RAG 闭环、评测、安全加固（V0.5—V0.8）
 - 12.27：MVP V1.0 冻结
