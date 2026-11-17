@@ -218,7 +218,7 @@ uv run python -c "from src.db import Base, engine; import src.models.course, src
 
 ## Demo 与评测
 
-- Demo 截图：已入仓库（`docs/demo/`，4 张：接口总览、POST 201、GET 200、422 校验失败）；12 月底用 AI 辅助生成简单演示页
+- Demo 截图：已入仓库（`docs/demo/`，7 张：V0.1 接口总览、POST 201、GET 200、422 校验失败；V0.2 手工联调 12 接口清单、GET /courses 200、DELETE 有文档课程 409）；12 月底用 AI 辅助生成简单演示页
 - 评测数据：**未测**。计划建立 20—30 条评测集，口径为 Top-5 来源命中率、引用准确率、有依据回答率、无依据正确拒答率（核心 4 项），及结构化输出通过率、端到端成功率（附加）。指标全部真实测得，未测标未测，不预填。
 
 ## 已知局限与安全说明
@@ -240,7 +240,7 @@ uv run python -c "from src.db import Base, engine; import src.models.course, src
 
 ## Roadmap（简版）
 
-- 当前：V0.2 完成——MySQL 持久化 + 课程/文档 CRUD 11 个业务接口 + course↔document 一对多关系 + 删除受外键保护（409）+ 19 条 pytest（11.07 收口，11.08 周复盘验收）
+- 当前：V0.2 完成——MySQL 持久化 + 课程/文档 CRUD 11 个业务接口 + course↔document 一对多关系 + 删除受外键保护（409）+ 19 条 pytest（**11.15 收口**，提交 `9365661`；11.16 周复盘验收）
 - 11 月：认证 / 上传 / 解析（V0.3 / V0.4）
 - 12 月：LLM 结构化输出、RAG 闭环、评测、安全加固（V0.5—V0.8）
 - 12.27：MVP V1.0 冻结

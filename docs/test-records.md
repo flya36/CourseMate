@@ -42,7 +42,7 @@
 - 本条为 11.2 记录，专门留给 MySQL 阶段踩到时提醒用。
 - **V0.2 更新**：该隐患已消除——V0.2 起所有用例改为"dynamic 取返回的 id"，不再断言固定值；测试库每条用例前 `create_all`、后 `drop_all`，也不依赖执行顺序。
 
-## V0.2 自动化测试记录（2026-11-07）
+## V0.2 自动化测试记录（2026-11-15）
 
 - 执行环境：Windows / Python 3.14.6 / pytest 9.2.0 / MySQL 9.7.2（PyMySQL 驱动）
 - 测试库：`coursemate_test`（与开发库 `coursemate` 隔离；每条用例前 `create_all`、后 `drop_all`）
@@ -87,5 +87,14 @@
 
 ### 手工联调（Swagger）
 
-- 状态：**未执行**（本节不预填结果，按"数据真实"原则留空）
-- 计划：逐个接口验证正常路径与异常路径后，把实际响应补录到本节
+- 状态：**部分执行**（有截图证据的 2 个接口 + 1 张接口清单；其余 10 个接口未留证，按"数据真实"原则不预填）
+- 执行环境：本机启动 `python -m uvicorn src.app.main:app --reload`，Swagger UI `/docs`
+
+| 接口 | 请求 | 实测响应 | 结论 | 截图 |
+| --- | --- | --- | --- | --- |
+| （文档页） | `/docs` | 12 条路径全部注册：`/health` 1 + `courses` 5 + `documents` 6 | 接口清单与代码一致，无幽灵接口 | `docs/demo/swagger-manual-endpoints.png` |
+| GET /courses | `?page=1&limit=10` | 200；返回 5 条课程（id 2—6，字段 `id/name/description/created_at`） | 分页参数生效，返回结构稳定 | `docs/demo/swagger-manual-get-200.png` |
+| DELETE /courses/{course_id} | `/courses/2` | 409；`{"detail":"该课程下还有文档，无法删除，请先删除文档"}` | 外键冲突被翻译成可行动的 409，未退化为 500 | `docs/demo/swagger-manual-delete-409.png` |
+
+- 时间说明：DELETE 409 那张的响应头为 `date: Mon, 10 Nov 2026 12:50:50 GMT`，说明该接口 11.10 已手工调过；接口清单页与 GET /courses 为 11.16 补截
+- **未留证的接口（10 个）**：POST /courses、GET /courses/{id}、PUT /courses/{id}、DELETE 空课程 204、POST /documents、GET /documents、GET /documents/{id}、GET /courses/{id}/documents、PUT /documents/{id}、DELETE /documents/{id} —— 同路径已被 pytest 19 条覆盖，但手工联调无截图，记为「未留证」，不写「已验证」

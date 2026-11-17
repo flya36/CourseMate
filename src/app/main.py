@@ -1,13 +1,14 @@
 import uvicorn
 from fastapi import FastAPI
 
-from src.router import health, course,document
+from src.router import auth, health, course,document
 
 app = FastAPI()
 # 注册路由：把各 router 模块挂载到主应用
 app.include_router(health.router)
 app.include_router(course.router)
 app.include_router(document.router)
+app.include_router(auth.router)
 
 from src.app.exception_handlers import register_exception_handlers
 register_exception_handlers(app)

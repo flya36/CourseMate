@@ -5,10 +5,13 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
+    "argon2-cffi>=25.1.0",
     "fastapi>=0.162.0",
     "httpx>=0.28.1",
     "pydantic-settings>=2.16.2",
+    "pyjwt>=2.15.1",
     "pymysql>=1.2.3",
+    "python-multipart>=0.0.34",
     "sqlalchemy>=2.1.8",
     "uvicorn>=0.54.0",
 ]
@@ -19,6 +22,7 @@ default = true
 
 [dependency-groups]
 dev = [
+    "bcrypt>=5.0.0",
     "httpx>=0.28.1",
     "pytest>=9.2.0",
 ]
