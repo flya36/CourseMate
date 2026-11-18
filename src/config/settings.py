@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     db_user: str = "root"
     db_password: str = ""
     db_name: str = "coursemate"
+    secret_key: str = ""
+    token_expire_minutes: int = 30
 
     @property
     def database_url(self) -> str:
