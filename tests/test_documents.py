@@ -223,3 +223,21 @@ def test_upload_to_others_course_403(client, raw_client):
     resp = _upload(raw_client, cid, "a.pdf", PDF_OK, headers={'Authorization': f'Bearer {tb}'})
     assert resp.status_code == 403
     assert set(UPLOAD_DIR.glob("*")) == before      # 先校验后落盘，盘上干净
+
+def test_full_chain_login_upload_query_delete(client):
+    """登录态→建课→上传→按课程查→查详情→删→文件消失，一条链路走完。"""
+    from pathlib import Path
+
+    cid = _create_course(client, "链路课")
+    r = _upload(client, cid, "第1讲.pdf", PDF_OK)
+    assert r.status_code == 201
+    did, rel = r.json()["id"], r.json()["file_path"]
+    path = Path(rel)
+    assert path.exists()
+
+    assert client.get(f'/courses/{cid}/documents').json()[0]["id"] == did
+    assert client.get(f'/documents/{did}').json()["filename"] == "第1讲.pdf"
+
+    assert client.delete(f'/documents/{did}').status_code == 204
+    assert client.get(f'/documents/{did}').status_code == 404
+    assert not path.exists()          # 这一句才是重点：验证删除联动

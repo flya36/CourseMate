@@ -98,3 +98,50 @@
 
 - 时间说明：DELETE 409 那张的响应头为 `date: Mon, 10 Nov 2026 12:50:50 GMT`，说明该接口 11.10 已手工调过；接口清单页与 GET /courses 为 11.16 补截
 - **未留证的接口（10 个）**：POST /courses、GET /courses/{id}、PUT /courses/{id}、DELETE 空课程 204、POST /documents、GET /documents、GET /documents/{id}、GET /courses/{id}/documents、PUT /documents/{id}、DELETE /documents/{id} —— 同路径已被 pytest 19 条覆盖，但手工联调无截图，记为「未留证」，不写「已验证」
+
+## V0.3 自动化测试记录（2026-11-24）
+
+- 执行环境：Windows / Python 3.14 / pytest 9.2 / MySQL 9.7.2（PyMySQL）
+- 测试库：`coursemate_test`；`tests/conftest.py` 提供三件套：`db_session`、`client`（注册 `tester` 并注入 Bearer，默认已登录）、`raw_client`（独立 TestClient、不带 token）
+- 执行命令：`uv run pytest -q`
+- 实测结果：**35 passed, 1 warning, 6.51s**（warning 仍是 starlette 对 httpx 的弃用提示）
+
+### 用例分布（35 条）
+
+| 文件 | 条数 | 覆盖点 |
+| --- | --- | --- |
+| `tests/test_auth.py` | 5 | 注册落库为 Argon2id PHC 串；重复用户名 409 且库内计数为 1；登录返回 token；密码错与用户不存在同一文案；`/auth/me` 无 token 401 |
+| `tests/test_courses.py` | 12 | 课程 CRUD / 分页 / 409 / 422；**B 删 A 的课程 → 403，同用例再断言不带 token → 401，最后确认课程仍在** |
+| `tests/test_documents.py` | 18 | 文档 CRUD / 分页 / 422 / 404；B 删 A 的文档 403 + 列表互不可见；上传 8 条（见下）；全链路 1 条 |
+
+### 上传与归属相关用例（9 条）
+
+| 用例 | 输入 | 期望 | 覆盖点 |
+| --- | --- | --- | --- |
+| `test_upload_exe_renamed_pdf_rejected` | `evil.pdf`，内容 `MZ\x90...` | 415 | 后缀过、魔数不过 |
+| `test_upload_fake_pdf_rejected` | `note.pdf`，纯文本 | 415 | 缺 `%PDF-` 头 |
+| `test_upload_wrong_ext_rejected` | `script.exe` | 415 | 后缀白名单 |
+| `test_upload_too_large_rejected` | `%PDF-` + 30 字节（把上限压到 10） | 413 | `read(MAX_SIZE+1)` 截断生效 |
+| `test_upload_ok_path_is_uuid` | filename 传 `../../etc/讲义.pdf`，合法 PDF | 201 | 落盘名 uuid、`parent == uploads`、不含 `..` |
+| `test_upload_pptx_ok_and_zip_not_pptx_rejected` | 真 pptx / 普通 zip 改名 | 201 / 415 | zip 不等于 pptx，须含 `ppt/presentation.xml` |
+| `test_upload_requires_token` | 无 token | 401 | 上传接口不裸奔 |
+| `test_upload_to_others_course_403` | B 往 A 的课程上传 | 403 | 课程归属校验，且装满前后 `uploads/` 文件集合不变 |
+| `test_full_chain_login_upload_query_delete` | 建课→上传→列表→详情→删 | 201/200/204/404 | 删除后**磁盘文件同步消失**（`assert not path.exists()`） |
+
+### 状态码分布（V0.3 新增部分）
+
+| 状态码 | 代表用例 | 含义 |
+| --- | --- | --- |
+| 401 | `/auth/me` 无 token、上传无 token、B 裸删 A 的资源 | 不知道你是谁 |
+| 403 | B 删 A 的课程、B 删 A 的文档、B 往 A 的课程上传 | 知道你是谁但不能 |
+| 404 | 未知课程/文档 id、上传到不存在课程 | 先判存在，再判归属 |
+| 413 | 超 20MB | 体积层 |
+| 415 | `.exe`、伪装 pdf、普通 zip 伪装 pptx | 后缀/魔数层 |
+
+### 未覆盖与已知局限
+
+1. `DocumentCreate.file_size` 仍由客户端自报，未与落盘文件 `stat().st_size` 核对
+2. `read(MAX_SIZE + 1)` 只限**单请求**内存；并发 N 个 20MB 上传，内存最坏 N×20MB
+3. 未做并发/竞态用例（同名课程并发创建的 409 依赖 DB 唯一约束，未被单独压测）
+4. `owner_id` 当前仍是 `nullable=True`，NOT NULL 收紧未做，测试库靠 `create_all` 无法验证 ALTER 结果
+5. 上传接口的 Swagger 手工联调尚未留证（本轮只有 pytest）

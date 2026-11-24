@@ -15,4 +15,4 @@ class Course(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     # 一对多：course.documents 直接拿到它下面的文档列表
     documents: Mapped[list["Document"]] = relationship(back_populates="course")
-    owner_id: Mapped[int | None] = mapped_column(ForeignKey('user.id'), nullable=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('user.id'), nullable=False)   # 归属：NOT NULL 由 DB 兜底

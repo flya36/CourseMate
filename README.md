@@ -162,7 +162,7 @@ create database if not exists coursemate_test
 
 **2. 配连接信息**
 
-复制 `.env.example` 为 `.env`，填写 `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME`（变量说明见下节）。密码只存在于 `.env`，`.gitignore` 已忽略该文件。
+复制 `.env.example` 为 `.env`，填写 `DB_HOST / DB_PORT / DB_USER / DB_PASSWORD / DB_NAME` 与 `SECRET_KEY / TOKEN_EXPIRE_MINUTES`（变量说明见下节）。密码与密钥只存在于 `.env`，`.gitignore` 已忽略该文件。`SECRET_KEY` 可用 `python -c "import secrets;print(secrets.token_urlsafe(32))"` 生成。
 
 **3. 验证连通性（可选）**
 
@@ -172,11 +172,13 @@ uv run python verify_db.py
 
 **4. 建表**
 
-`course` 与 `document` 两表由 ORM 模型定义：跑 pytest 时会在 `coursemate_test` 里自动 `create_all` / `drop_all`；开发库 `coursemate` 可执行一次下面的命令建表。
+`user` / `course` / `document` 三张表由 ORM 模型定义：跑 pytest 时会在 `coursemate_test` 里自动 `create_all` / `drop_all`；开发库 `coursemate` 执行一次下面这条（幂等，重复跑不会改动已有表）：
 
 ```powershell
-uv run python -c "from src.db import Base, engine; import src.models.course, src.models.document; Base.metadata.create_all(engine); print('tables created')"
+uv run python scripts/init_db.py
 ```
+
+> 脚本内部会 `import src.models`——漏掉这行，`Base.metadata` 是空的，`create_all` 会「成功但什么都不建」。
 
 > 外键 `document.course_id → course.id` 为 `RESTRICT`：删除课程前必须先删其文档，否则接口返回 409。`chunk` 表属 V0.4 解析阶段，届时补 ORM 映射。
 

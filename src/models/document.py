@@ -19,4 +19,4 @@ class Document(Base):
 
     # 多对一的反向：document.course 直接拿到所属课程对象
     course: Mapped["Course"] = relationship(back_populates="documents")
-    owner_id: Mapped[int | None] = mapped_column(ForeignKey('user.id'), nullable=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey('user.id'), nullable=False)   # 归属：NOT NULL 由 DB 兜底
