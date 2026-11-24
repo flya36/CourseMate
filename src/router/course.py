@@ -1,6 +1,6 @@
 from src.schema.course import CourseCreate,CourseRead
 from src.service.course import create_course, list_courses,get_course,update_course,delete_course
-from fastapi import APIRouter,Depends, Query
+from fastapi import APIRouter,Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from src.db import get_db
 from src.app.deps import get_current_user

@@ -15,7 +15,7 @@ def _doc_payload(course_id: int, filename: str = "进程调度.pdf", file_type: 
         "course_id": course_id,
         "filename": filename,
         "file_type": file_type,
-        "file_path": f"/uploads/{filename}",
+        "file_path": f"uploads/{filename}",
         "file_size": 1024,
     }
 
@@ -58,8 +58,8 @@ def test_update_and_delete_document(client):
     cid = _create_course(client, "操作系统")
     did = client.post('/documents', json=_doc_payload(cid)).json()["id"]   # 动态取 id
 
-    # 更新 filename
-    resp = client.put(f'/documents/{did}', json=_doc_payload(cid, filename="新名字.pdf"))
+    # 更新 filename（PUT 只接受 DocumentUpdate：仅 filename）
+    resp = client.put(f'/documents/{did}', json={"filename": "新名字.pdf"})
     assert resp.status_code == 200
     assert resp.json()["filename"] == "新名字.pdf"
 
@@ -118,3 +118,108 @@ def test_user_b_cannot_touch_user_a_document(client, raw_client):
     assert raw_client.delete(f'/documents/{did}').status_code == 401
     assert raw_client.get('/documents', headers=b_headers).json() == []      # 只看得到自己的
     assert client.get(f'/documents/{did}').status_code == 200                # 没被删掉
+
+import io
+import zipfile
+from pathlib import Path
+
+PDF_OK = b"%PDF-1.7\n%fake but header right"
+
+
+def _upload(client, cid, name, data, ctype='application/pdf', headers=None):
+    return client.post('/documents/upload',
+                       data={'course_id': str(cid)},
+                       files={'file': (name, data, ctype)},
+                       headers=headers or {})
+
+
+def _fake_pptx() -> bytes:
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("ppt/presentation.xml", "<p:presentation/>")
+        z.writestr("[Content_Types].xml", "<Types/>")
+    return buf.getvalue()
+
+
+def test_upload_exe_renamed_pdf_rejected(client):
+    """MZ 头改名 .pdf → 415（后缀过了，魔数没过）。"""
+    cid = _create_course(client, "上传课")
+    resp = _upload(client, cid, "evil.pdf", b"MZ\x90\x00 this is an exe")
+    assert resp.status_code == 415
+    assert "PDF" in resp.json()["detail"]
+
+
+def test_upload_fake_pdf_rejected(client):
+    """纯文本改 .pdf，没有 %PDF- 头 → 415。"""
+    cid = _create_course(client, "上传课")
+    resp = _upload(client, cid, "note.pdf", b"just some text")
+    assert resp.status_code == 415
+
+
+def test_upload_wrong_ext_rejected(client):
+    """后缀不在白名单 → 415，且不读内容就已经拒。"""
+    cid = _create_course(client, "上传课")
+    resp = _upload(client, cid, "script.exe", b"MZ\x90\x00")
+    assert resp.status_code == 415
+
+
+def test_upload_too_large_rejected(client, monkeypatch):
+    """超限 → 413。用 monkeypatch 把上限压到 10 字节，避免在测试里搬 20MB。"""
+    import src.router.document as rdoc
+    monkeypatch.setattr(rdoc, 'MAX_SIZE', 10)
+
+    cid = _create_course(client, "上传课")
+    resp = _upload(client, cid, "big.pdf", b"%PDF-" + b"x" * 30)
+    assert resp.status_code == 413
+
+
+def test_upload_ok_path_is_uuid(client):
+    """正常 PDF 且 filename 带 ../ → 201；库里存的是 uploads/<uuid>.pdf，用户输入不参与路径。"""
+    cid = _create_course(client, "上传课")
+    resp = _upload(client, cid, "../../etc/讲义.pdf", PDF_OK)
+    assert resp.status_code == 201
+
+    data = resp.json()
+    path = Path(data["file_path"])
+    assert data["filename"] == "讲义.pdf"              # 只留 basename
+    assert path.parent == Path("uploads")              # 没逃出上传目录
+    assert ".." not in data["file_path"]
+    assert path.name.endswith(".pdf") and len(path.stem) == 32   # uuid4().hex
+    assert path.exists()
+    path.unlink()                                       # 别把测试文件留在盘上
+
+
+def test_upload_pptx_ok_and_zip_not_pptx_rejected(client):
+    """真 pptx 通过；普通 zip 改名 .pptx 拒。"""
+    cid = _create_course(client, "上传课")
+    ok = _upload(client, cid, "第1讲.pptx", _fake_pptx(),
+                 'application/vnd.openxmlformats-officedocument.presentationml.presentation')
+    assert ok.status_code == 201
+    Path(ok.json()["file_path"]).unlink()
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("readme.txt", "just a zip")
+    bad = _upload(client, cid, "evil.pptx", buf.getvalue(), 'application/octet-stream')
+    assert bad.status_code == 415
+
+
+def test_upload_requires_token(client, raw_client):
+    """不带 token → 401（上传是最贵的接口，不能裸奔）。"""
+    cid = _create_course(client, "上传课")
+    resp = _upload(raw_client, cid, "a.pdf", PDF_OK)
+    assert resp.status_code == 401
+
+
+
+def test_upload_to_others_course_403(client, raw_client):
+    """B 往 A 的课程上传 → 403，且磁盘上不留文件。"""
+    from src.service.upload import UPLOAD_DIR
+    cid = _create_course(client, "A的课")
+    raw_client.post('/auth/register', json={'username': 'userb', 'password': 'Passw0rd!'})
+    tb = raw_client.post('/auth/login', json={'username': 'userb', 'password': 'Passw0rd!'}).json()['access_token']
+
+    before = set(UPLOAD_DIR.glob("*"))
+    resp = _upload(raw_client, cid, "a.pdf", PDF_OK, headers={'Authorization': f'Bearer {tb}'})
+    assert resp.status_code == 403
+    assert set(UPLOAD_DIR.glob("*")) == before      # 先校验后落盘，盘上干净

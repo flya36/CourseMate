@@ -70,7 +70,7 @@ def test_delete_course_with_documents_returns_409(client):
         "course_id": cid,
         "filename": "讲义.pdf",
         "file_type": "pdf",
-        "file_path": "/uploads/讲义.pdf",
+        "file_path": "uploads/讲义.pdf",
         "file_size": 100,
     })
     assert doc.status_code == 201                 # 文档建成功（外键指向课程）
@@ -90,7 +90,7 @@ def test_delete_course_after_documents_removed(client):
     cid = client.post('/courses', json={"name": "先删子后删父"}).json()["id"]
     did = client.post('/documents', json={
         "course_id": cid, "filename": "子.pdf", "file_type": "pdf",
-        "file_path": "/uploads/子.pdf", "file_size": 100,
+        "file_path": "uploads/子.pdf", "file_size": 100,
     }).json()["id"]
 
     assert client.delete(f'/documents/{did}').status_code == 204    # 先删子

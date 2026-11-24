@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -5,8 +7,9 @@ from sqlalchemy.orm import Session
 from src.models.course import Course
 from src.models.document import Document
 from src.models.user import User
-from src.schema.document import DocumentCreate
+from src.schema.document import DocumentCreate,DocumentUpdate
 from src.service.course import _ensure_owner
+from src.service.upload import resolve_path
 
 # ───────── 1. 创建 ─────────
 def create_document(db: Session, data: DocumentCreate, current_user: User) -> Document:
@@ -15,6 +18,10 @@ def create_document(db: Session, data: DocumentCreate, current_user: User) -> Do
     if course is None:
         raise HTTPException(status_code=404, detail="课程不存在")
     _ensure_owner(course, current_user)          # 不能往别人的课程里塞文件
+
+    rel = Path(data.file_path)
+    if rel.is_absolute() or not rel.parts or rel.parts[0] != "uploads" or ".." in rel.parts:
+        raise HTTPException(400, "非法文件路径")   # 绝对路径 / 不在 uploads 下 / 用 .. 逃逸
 
     document = Document(course_id=data.course_id,
                         filename=data.filename,
@@ -49,20 +56,11 @@ def get_document(db: Session, document_id: int, current_user: User) -> Document:
     return document
 
 # ───────── 4. 更新 ─────────
-def update_document(db: Session, document_id: int, data: DocumentCreate, current_user: User) -> Document:
-    """整体更新文件：先查 + 校验归属 → 改字段 → 提交。"""
+def update_document(db: Session, document_id: int, data: DocumentUpdate, current_user: User) -> Document:
+    """只改展示用元信息：file_path / file_size / file_type 由服务端掌握，不接受客户端传入。"""
     document = get_document(db, document_id, current_user)
 
-    course = db.get(Course, data.course_id)
-    if course is None:
-        raise HTTPException(status_code=404, detail="课程不存在")
-    _ensure_owner(course, current_user)          # 改挂到别人的课程下同样要拦
-
-    document.course_id = data.course_id
     document.filename = data.filename
-    document.file_type = data.file_type
-    document.file_path = data.file_path
-    document.file_size = data.file_size
     db.commit()
     db.refresh(document)
     return document
@@ -71,8 +69,10 @@ def update_document(db: Session, document_id: int, data: DocumentCreate, current
 def delete_document(db: Session, document_id: int, current_user: User) -> None:
     """删除文件：先查 + 校验归属 → 删除 → 提交。"""
     document = get_document(db, document_id, current_user)
+    file_path = document.file_path
     db.delete(document)
     db.commit()
+    resolve_path(file_path).unlink(missing_ok=True)
 
 # ───────── 6. 根据课程id读取相关课程文件 ─────────
 def get_documents_by_course_id(db: Session, course_id: int, current_user: User) -> list[Document]:

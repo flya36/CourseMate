@@ -19,3 +19,7 @@ class DocumentRead(BaseModel):
     file_path:str
     file_size:int
     created_at:datetime
+
+class DocumentUpdate(BaseModel):
+    model_config = ConfigDict(extra='forbid')
+    filename: str = Field(min_length=1, max_length=255)
