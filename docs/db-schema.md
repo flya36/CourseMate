@@ -24,6 +24,7 @@
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
 | `id` | `int` | PK, AUTO_INCREMENT | 代理主键，业务不暴露自增规律前先不管 |
+| `owner_id` | `int` | NULL, **FK → user.id** | V0.3 归属隔离：`list` 用它过滤，`get` 用它判 403 |
 | `name` | `varchar(100)` | NOT NULL, **UNIQUE** | 课程名；重名 → 409（DB 唯一约束 + service 预检双保险） |
 | `description` | `varchar(255)` | NULL | 可为空；PUT 整体更新时允许传 `null` 清空 |
 | `created_at` | `datetime` | NOT NULL, DEFAULT CURRENT_TIMESTAMP | 由 DB 生成，不由应用赋值 |
@@ -33,6 +34,7 @@
 | 字段 | 类型 | 约束 | 说明 |
 | --- | --- | --- | --- |
 | `id` | `int` | PK, AUTO_INCREMENT | |
+| `owner_id` | `int` | NULL, **FK → user.id** | V0.3 归属隔离；创建时写当前用户，另校验所属课程归属 |
 | `course_id` | `int` | NOT NULL, **FK → course.id** | 归属课程；索引随 FK 自动创建 |
 | `filename` | `varchar(255)` | NOT NULL | **原始文件名，仅作显示元数据**；V0.3 落盘名改用内部 ID |
 | `file_type` | `enum('pdf','pptx')` | NOT NULL | 见 2.4 的三层校验说明 |
@@ -146,6 +148,8 @@ CREATE TABLE `chunk` (
 | `document.owner_id`、`course.owner_id` → FK `user.id` | V0.3 资源归属隔离 | 唯一能验证越权的字段；不加这一列，403 无从谈起 |
 | `document.parse_status`（`pending/parsed/failed`）、`page_count`、`error_reason` | V0.4 解析状态 | 失败原因要能展示给用户，别只写日志 |
 | `document.original_name` 与落盘名分离 | V0.3 上传 | 落盘用 UUID，原名只作显示，避免路径穿越 |
+
+> 2026-11-24 更新：`course.owner_id`、`document.owner_id` 已在两个库上 `ALTER` 加好，模型为 `nullable=True` 过渡态，开发库老数据已回填为 `owner_id=1`（用户 fly）。**V0.3 打 tag 前要收紧成 `NOT NULL`**，否则新建资源漏写归属时数据库不会报错，只会留下一个永远 403 的孤儿。
 
 ## 八、当前数据快照（2026-11-16）
 

@@ -32,11 +32,31 @@ def db_session():
 
 
 @pytest.fixture
-def client(db_session):
-    """把应用里的 get_db 替换成测试库会话，返回 TestClient。"""
+def _api_with_test_db(db_session):
+    """把应用里的 get_db 换成测试库会话，供下面两个客户端 fixture 复用。"""
     def override_get_db():
         yield db_session                         # 依赖注入返回测试会话
 
-    app.dependency_overrides[get_db] = override_get_db   # 关键：覆盖真库依赖
-    yield TestClient(app)                        # 交给测试发请求
+    app.dependency_overrides[get_db] = override_get_db
+    yield
     app.dependency_overrides.clear()             # 测完恢复原状，防止串到别的测试
+
+
+@pytest.fixture
+def raw_client(_api_with_test_db):
+    """未登录的客户端：专用来测 401、或用显式 headers 冒充别人。"""
+    return TestClient(app)
+
+
+@pytest.fixture
+def client(_api_with_test_db):
+    """已登录的客户端：注册 tester → 登录 → token 挂到默认请求头。
+
+    注意：client 与 raw_client 是两个独立的 TestClient 实例，
+    请求头互不影响；同一条用例里可以同时用它们区分"有 token / 没 token"。
+    """
+    c = TestClient(app)
+    c.post('/auth/register', json={'username': 'tester', 'password': 'Passw0rd!'})
+    r = c.post('/auth/login', json={'username': 'tester', 'password': 'Passw0rd!'})
+    c.headers.update({'Authorization': f"Bearer {r.json()['access_token']}"})
+    return c

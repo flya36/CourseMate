@@ -112,3 +112,18 @@ def test_update_course_can_clear_description(client):
     resp = client.put(f'/courses/{cid}', json={"name": "清空测试", "description": None})
     assert resp.status_code == 200
     assert resp.json()["description"] is None       # 旧值被清掉
+
+def test_user_b_cannot_delete_user_a_course(client, raw_client):
+    """A 建的课程，B 来删 → 403；完全不带 token → 401；两码必须分开出现。"""
+    course_id = client.post('/courses', json={'name': 'A的课', 'description': 'x'}).json()['id']
+
+    # B 单独登录，token 通过显式 headers 使用，不动 raw_client 的默认请求头
+    raw_client.post('/auth/register', json={'username': 'userb', 'password': 'Passw0rd!'})
+    tb = raw_client.post('/auth/login', json={'username': 'userb', 'password': 'Passw0rd!'}).json()['access_token']
+
+    r403 = raw_client.delete(f'/courses/{course_id}', headers={'Authorization': f'Bearer {tb}'})
+    r401 = raw_client.delete(f'/courses/{course_id}')
+
+    assert r403.status_code == 403
+    assert r401.status_code == 401
+    assert client.get(f'/courses/{course_id}').status_code == 200   # 两次拒绝都没造成删除

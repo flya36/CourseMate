@@ -103,3 +103,18 @@ def test_list_documents_out_of_range_page_returns_empty(client):
     resp = client.get('/documents?page=99&limit=10')
     assert resp.status_code == 200
     assert resp.json() == []
+
+
+def test_user_b_cannot_touch_user_a_document(client, raw_client):
+    """A 的文档：B 删 → 403、B 不带 token → 401；别人的文档列表为空。"""
+    cid = _create_course(client, "A的课")
+    did = client.post('/documents', json=_doc_payload(cid)).json()["id"]
+
+    raw_client.post('/auth/register', json={'username': 'userb', 'password': 'Passw0rd!'})
+    tb = raw_client.post('/auth/login', json={'username': 'userb', 'password': 'Passw0rd!'}).json()['access_token']
+    b_headers = {'Authorization': f'Bearer {tb}'}
+
+    assert raw_client.delete(f'/documents/{did}', headers=b_headers).status_code == 403
+    assert raw_client.delete(f'/documents/{did}').status_code == 401
+    assert raw_client.get('/documents', headers=b_headers).json() == []      # 只看得到自己的
+    assert client.get(f'/documents/{did}').status_code == 200                # 没被删掉
